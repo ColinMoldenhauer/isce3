@@ -110,44 +110,74 @@ def check_range_bandwidth_overlap(ref_slc, sec_slc, pols):
 
 class SplitSpectrum:
     '''
-    Split the slant range spectrum
+    Split the spectrum in slant range or azimuth direction.
     '''
 
     def __init__(self,
-                 rg_sample_freq,
-                 rg_bandwidth,
+                 sample_freq,
+                 bandwidth,
                  center_frequency,
                  slant_range,
                  freq,
+                 axis,
                  sampling_bandwidth_ratio=None):
         """Initialized Bandpass Class with SLC meta data
 
         Parameters
         ----------
-        rg_sample_freq : float
+        sample_freq : float
             range sampling frequency
-        rg_bandwidth : float
+        bandwidth : float
             range bandwidth [Hz]
         center_frequency : float
             center frequency of SLC [Hz]
         slant_range : new center frequency for bandpass [Hz]
         freq : {'A', 'B'}
             frequency band
+        axis : {'rg', 'az'}
+            Whether to split the spectrum in range or azimuth direction
         sampling_bandwidth_ratio: float
             The ratio of range sampling frequency to bandwidth.
             If not provided, sampling frequency will be same as
             input.
         """
         self.freq = freq
-        self.rg_sample_freq = rg_sample_freq
-        self.rg_pxl_spacing = \
-            isce3.core.speed_of_light * 0.5 / self.rg_sample_freq
-        self.rg_bandwidth = rg_bandwidth
+        self.sample_freq = sample_freq
+        self.pxl_spacing =
+	     isce3.core.speed_of_light * 0.5 / self.sample_freq
+        self.bandwidth = bandwidth
         self.center_frequency = center_frequency
+
+        self.axis = axis
+
         self.slant_range = slant_range
         if sampling_bandwidth_ratio is None:
-            sampling_bandwidth_ratio = rg_sample_freq / rg_bandwidth
+            sampling_bandwidth_ratio = sample_freq / bandwidth
         self.sampling_bandwidth_ratio = sampling_bandwidth_ratio
+
+    @property
+    def _fft_axis(self):
+        """Axis index along which to perform fft."""
+        return 1 if self.axis == "rg" else 0
+
+    def _broadcast(self, array):
+        """
+        Expand arrays, such like bandpass windows,
+        according to the splitting axis, such that
+        numpy broadcasting rules are obeyed.
+
+        Parameters
+        ----------
+        array : np.ndarray
+            Array to be reshaped to proper dimensions
+
+        Returns
+        -------
+        np.ndarray
+            Reshaped array
+        """
+        return np.expand_dims(array, axis=0 if self.axis=="rg" else 1)      # opposite axis for expansion than for fft
+
 
     def bandpass_shift_spectrum(self,
                                 slc_raster,
@@ -193,11 +223,10 @@ class SplitSpectrum:
             return slc with bandpass and demodulation without resampling
         meta : dict
             dict containing meta data of bandpassed slc
-            center_frequency, rg_bandwidth, range_spacing, slant_range
+            center_frequency, bandwidth, range_spacing, slant_range
         """
 
-        rg_sample_freq = self.rg_sample_freq
-        rg_bandwidth = self.rg_bandwidth
+        sample_freq = self.sample_freq
         diff_frequency = self.center_frequency - new_center_frequency
         height, width = slc_raster.shape
         slc_raster = np.asanyarray(slc_raster, dtype='complex')
@@ -213,58 +242,83 @@ class SplitSpectrum:
 
         # demodulate the SLC to be baseband to new center frequency
         # if fft_size > width, then crop the spectrum from 0 to width
-        slc_demodulate = self.demodulate_slc(slc_bp[:, :width],
-                                             diff_frequency,
-                                             rg_sample_freq)
+        if self.axis == "rg":
+            slc_demodulate = self.demodulate_slc(slc_bp[:, :width],
+                                                diff_frequency,
+                                                sample_freq)
+        else:
+            slc_demodulate = self.demodulate_slc(slc_bp[:height, :],
+                                                diff_frequency,
+                                                sample_freq)
 
         # update metadata with new parameters
         meta = dict()
         new_bandwidth = high_frequency - low_frequency
-        new_rg_sample_freq = np.abs(new_bandwidth) * \
+        new_sample_freq = np.abs(new_bandwidth) * \
             self.sampling_bandwidth_ratio
 
-        meta['center_frequency'] = new_center_frequency
-        meta['rg_bandwidth'] = new_bandwidth
-        meta['rg_sample_freq'] = new_rg_sample_freq
+        if self.axis == "rg":
+            meta['center_frequency'] = new_center_frequency
+            meta['bandwidth'] = new_bandwidth
+            meta['sample_freq'] = new_sample_freq
+        else:
+            meta['az_bandwidth'] = new_bandwidth
+            # TODO
 
         # Resampling changes the spacing and slant range
+        spacing_key = "range_spacing" if self.axis == "rg" else "azimuth_spacing"
         if resampling:
             # due to the precision of the floating point, the resampling
             # scaling factor may be not integer.
-            resampling_scale_factor = rg_sample_freq / new_rg_sample_freq
+            resampling_scale_factor = sample_freq / new_sample_freq
 
             # convert to integer
-            if rg_sample_freq % new_rg_sample_freq == 0:
+            if sample_freq % new_sample_freq == 0:
                 resampling_scale_factor = np.round(resampling_scale_factor)
             else:
                 err_msg = 'Resampling scaling factor ' \
                           f'{resampling_scale_factor} must be an integer.'
                 raise ValueError(err_msg)
 
-            sub_width = int(width / resampling_scale_factor)
+            if self.axis == "rg":
+                sub_dim = int(width / resampling_scale_factor)
+                x_cand = np.arange(1, width + 1)
+            else:
+                sub_dim = int(height / resampling_scale_factor)
+                x_cand = np.arange(1, height + 1)
 
-            x_cand = np.arange(1, width + 1)
             # find the maximum of the multiple of resampling_scale_factor
-            resample_width_end = np.max(x_cand[x_cand %
+            resample_end = np.max(x_cand[x_cand %
                                                resampling_scale_factor == 0])
 
             # resample SLC
-            resampled_slc = resample(
-                slc_demodulate[:, :resample_width_end], sub_width, axis=1)
+            if self.axis == "rg":
+                resampled_slc = resample(
+                    slc_demodulate[:, :resample_end], sub_dim, axis=1)
+            else:
+                resampled_slc = resample(
+                    slc_demodulate[:resample_end, :], sub_dim, axis=0)
 
-            meta['range_spacing'] = \
-                self.rg_pxl_spacing * resampling_scale_factor
-            meta['slant_range'] = \
-                self.slant_range(0) + \
-                np.arange(sub_width) * meta['range_spacing']
+            meta[spacing_key] = \
+                self.pxl_spacing * resampling_scale_factor
+
+            if self.axis == "rg":
+                meta['slant_range'] = \
+                    self.slant_range(0) + \
+                    np.arange(sub_dim) * meta['range_spacing']
+            else:
+                pass	# TODO
 
             return resampled_slc, meta
 
         else:
-            meta['range_spacing'] = self.rg_pxl_spacing
-            meta['slant_range'] = \
-                self.slant_range(0) + \
-                np.arange(width) * meta['range_spacing']
+            meta[spacing_key] = self.pxl_spacing
+            if self.axis == "rg":
+                meta['slant_range'] = \
+                    self.slant_range(0) + \
+                    np.arange(width) * meta['range_spacing']
+            else:
+                pass
 
             return slc_demodulate, meta
 
@@ -302,53 +356,56 @@ class SplitSpectrum:
         """
         error_channel = journal.error('splitspectrum.bandpass_spectrum')
 
-        rg_sample_freq = self.rg_sample_freq
-        rg_bandwidth = self.rg_bandwidth
+        sample_freq = self.sample_freq
+        bandwidth = self.bandwidth
         center_frequency = self.center_frequency
         height, width = slc_raster.shape
         slc_raster = np.asanyarray(slc_raster, dtype='complex')
         new_bandwidth = high_frequency - low_frequency
-        new_rg_sample_freq = self.sampling_bandwidth_ratio * new_bandwidth
-        resampling_scale_factor = rg_sample_freq / new_rg_sample_freq
+        new_sample_freq = self.sampling_bandwidth_ratio * new_bandwidth
+        resampling_scale_factor = sample_freq / new_sample_freq
 
         if new_bandwidth < 0:
             err_str = "Low frequency is higher than high frequency"
             error_channel.log(err_str)
             raise ValueError(err_str)
 
+        dim = width if self.axis == "rg" else height
         if fft_size is None:
-            fft_size = width
+            fft_size = dim
 
-        if fft_size < width:
-            err_str = "FFT size is smaller than number of range bins"
+        if fft_size < dim:
+            err_str = f"FFT size is smaller than number of {self.axis} bins"
             error_channel.log(err_str)
             raise ValueError(err_str)
 
         # construct window to be deconvolved
         # from the original SLC in freq domain
-        window_target = self.get_range_bandpass_window(
+        window_target = self.get_bandpass_window(
             center_frequency=0,
-            freq_low=-rg_bandwidth/2,
-            freq_high=rg_bandwidth/2,
-            sampling_frequency=rg_sample_freq,
+            freq_low=-bandwidth/2,
+            freq_high=bandwidth/2,
+            sampling_frequency=sample_freq,
             fft_size=fft_size,
             window_function=window_function,
             window_shape=window_shape
             )
         # construct window to bandpass spectrum
         # for given low and high frequencies
-        window_bandpass = self.get_range_bandpass_window(
+        window_bandpass = self.get_bandpass_window(
             center_frequency=0,
             freq_low=low_frequency - center_frequency,
             freq_high=high_frequency - center_frequency,
-            sampling_frequency=rg_sample_freq,
+            sampling_frequency=sample_freq,
             fft_size=fft_size,
             window_function=window_function,
             window_shape=window_shape
             )
 
+        # get spectrum
+        spectrum_target = fft(slc_raster, n=fft_size, workers=-1, axis=self._fft_axis)
+
         # remove the windowing effect from the spectrum
-        spectrum_target = fft(slc_raster, n=fft_size, workers=-1)
         spectrum_target = np.divide(spectrum_target,
                                     window_target,
                                     out=np.zeros_like(spectrum_target),
@@ -356,14 +413,14 @@ class SplitSpectrum:
 
         # apply new bandpass window to spectrum
         slc_bandpassed = ifft(spectrum_target
-                              * window_bandpass
+                              * self._broadcast(window_bandpass)
                               * np.sqrt(resampling_scale_factor),
                               n=fft_size,
-                              workers=-1)
+                              workers=-1, axis=self._fft_axis)
 
         return slc_bandpassed
 
-    def demodulate_slc(self, slc_array, diff_frequency, rg_sample_freq):
+    def demodulate_slc(self, slc_array, diff_frequency, sample_freq):
         """ Demodulate SLC
 
         If diff_frequency is not zero, then the spectrum of SLC is shifted
@@ -375,7 +432,7 @@ class SplitSpectrum:
             SLC raster or block of SLC raster
         diff_frequency : float
             difference between original and new center frequency [Hz]
-        rg_sample_freq : float
+        sample_freq : float
             range sampling frequency [Hz]
 
         Returns
@@ -384,9 +441,14 @@ class SplitSpectrum:
             demodulated SLC
         """
         height, width = slc_array.shape
-        range_time = np.arange(width) / rg_sample_freq
+
+        if self.axis == "rg":
+            time = self._broadcast(np.arange(width) / sample_freq)
+        else:
+            time = self._broadcast(np.arange(height) / sample_freq)
+
         slc_shifted = slc_array * np.exp(1j * 2.0 * np.pi
-                                         * diff_frequency * range_time)
+					  * diff_frequency * time)
         return slc_shifted
 
     def freq_spectrum(self, cfrequency, dt, fft_size):
@@ -409,15 +471,15 @@ class SplitSpectrum:
         freq = cfrequency + fftfreq(fft_size, dt)
         return freq
 
-    def get_range_bandpass_window(self,
-                                  center_frequency,
-                                  sampling_frequency,
-                                  fft_size,
-                                  freq_low,
-                                  freq_high,
-                                  window_function='tukey',
-                                  window_shape=0.25):
-        '''Get range bandpass window such as Tukey, Kaiser, cosine.
+    def get_bandpass_window(self,
+                            center_frequency,
+                            sampling_frequency,
+                            fft_size,
+                            freq_low,
+                            freq_high,
+                            window_function='tukey',
+                            window_shape=0.25):
+        '''Get bandpass window such as Tukey, Kaiser, cosine.
         Window is constructed in frequency domain from low to high frequencies
         with given window_function and shape.
 
@@ -446,7 +508,7 @@ class SplitSpectrum:
         filter_1d : np.ndarray
             one dimensional bandpass filter in frequency domain
         '''
-        error_channel = journal.error('splitspectrum.get_range_bandpass_window')
+        error_channel = journal.error('splitspectrum.get_bandpass_window')
         # construct the frequency bin [Hz]
         frequency = self.freq_spectrum(
                     cfrequency=center_frequency,
@@ -464,7 +526,7 @@ class SplitSpectrum:
                 error_channel.log(err_str)
                 raise ValueError(err_str)
 
-            filter_1d = self.construct_range_bandpass_tukey(
+            filter_1d = self.construct_bandpass_tukey(
                 frequency_range=frequency,
                 freq_low=freq_low,
                 freq_high=freq_high,
@@ -477,7 +539,7 @@ class SplitSpectrum:
                 error_channel.log(err_str)
                 raise ValueError(err_str)
 
-            filter_1d = self.construct_range_bandpass_kaiser(
+            filter_1d = self.construct_bandpass_kaiser(
                 frequency_range=frequency,
                 freq_low=freq_low,
                 freq_high=freq_high,
@@ -489,7 +551,7 @@ class SplitSpectrum:
                 err_str = f"Expected window_shape between 0 and 1, got {window_shape}."
                 error_channel.log(err_str)
                 raise ValueError(err_str)
-            filter_1d = self.construct_range_bandpass_cosine(
+            filter_1d = self.construct_bandpass_cosine(
                 frequency_range=frequency,
                 freq_low=freq_low,
                 freq_high=freq_high,
@@ -503,11 +565,11 @@ class SplitSpectrum:
 
         return filter_1d
 
-    def construct_range_bandpass_cosine(self,
-                                        frequency_range,
-                                        freq_low,
-                                        freq_high,
-                                        window_shape):
+    def construct_bandpass_cosine(self,
+                                  frequency_range,
+                                  freq_low,
+                                  freq_high,
+                                  window_shape):
         '''Generate a Cosine bandpass window
 
         Parameters
@@ -526,7 +588,7 @@ class SplitSpectrum:
         filter_1d : np.ndarray
             one dimensional Cosine bandpass filter in frequency domain
         '''
-        filter_1d = self._construct_range_bandpass_kaiser_cosine(
+        filter_1d = self._construct_bandpass_kaiser_cosine(
             frequency_range,
             freq_low,
             freq_high,
@@ -534,11 +596,11 @@ class SplitSpectrum:
             window_shape)
         return filter_1d
 
-    def construct_range_bandpass_kaiser(self,
-                                        frequency_range,
-                                        freq_low,
-                                        freq_high,
-                                        window_shape):
+    def construct_bandpass_kaiser(self,
+                                  frequency_range,
+                                  freq_low,
+                                  freq_high,
+                                  window_shape):
         '''Generate a Kaiser bandpass window
 
         Parameters
@@ -557,7 +619,7 @@ class SplitSpectrum:
         filter_1d : np.ndarray
             one dimensional kaiser bandpass filter in frequency domain
         '''
-        filter_1d = self._construct_range_bandpass_kaiser_cosine(
+        filter_1d = self._construct_bandpass_kaiser_cosine(
             frequency_range,
             freq_low,
             freq_high,
@@ -565,7 +627,7 @@ class SplitSpectrum:
             window_shape)
         return filter_1d
 
-    def _construct_range_bandpass_kaiser_cosine(
+    def _construct_bandpass_kaiser_cosine(
             self,
             frequency_range,
             freq_low,
@@ -593,7 +655,7 @@ class SplitSpectrum:
             one dimensional kaiser bandpass filter in frequency domain
         '''
         error_channel = journal.error(
-            'splitspectrum._construct_range_bandpass_kaiser_cosine')
+            'splitspectrum._construct_bandpass_kaiser_cosine')
 
         subbandwidth = np.abs(freq_high - freq_low)
         fft_size = len(frequency_range)
@@ -640,11 +702,11 @@ class SplitSpectrum:
 
         return filter_1d
 
-    def construct_range_bandpass_tukey(self,
-                                       frequency_range,
-                                       freq_low,
-                                       freq_high,
-                                       window_shape):
+    def construct_bandpass_tukey(self,
+                                 frequency_range,
+                                 freq_low,
+                                 freq_high,
+                                 window_shape):
         '''Generate a Tukey (raised-cosine) window
 
         Parameters
