@@ -16,7 +16,7 @@ class IonosphereEstimation:
                  slant_main=None,
                  slant_side=None):
 
-        """Initialized IonosphererEstimation Base Class
+        """Initialized IonosphereEstimation Base Class
 
         Parameters
         ----------
@@ -28,9 +28,6 @@ class IonosphereEstimation:
             center frequency of lower sub-band of the main band [Hz]
         high_center_freq : float
             center frequency of upper sub-band of the main band [Hz]
-        method : {'split_main_band', 'main_side_band',
-            'main_diff_ms_band'}
-            ionosphere estimation method
         """
 
         error_channel = journal.error('ionosphere.IonosphereEstimation')
@@ -38,7 +35,7 @@ class IonosphereEstimation:
         # Center frequency for frequency A is needed for all methods.
         if main_center_freq is None:
             err_str = f"Center frequency for frequency A "\
-                f" is needed for {method}"
+                f" is needed"
             error_channel.log(err_str)
             raise ValueError(err_str)
 

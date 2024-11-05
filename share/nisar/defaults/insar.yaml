@@ -74,7 +74,7 @@ runconfig:
 
         # TODO OPTIONAL - To setup type of worker
         worker:
-            # OPTIONAL - To prevent downloading DEM / other data automatically. Default True
+            # OPTIONAL - To prevent downloading DEM / other data automatically. Default False
             internet_access: False
 
             # OPTIONAL - To explicitly use GPU capability if available. Default False

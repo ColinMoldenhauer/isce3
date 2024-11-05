@@ -348,7 +348,7 @@ class SplitSpectrum:
             low  frequency of band to be passed [Hz]
         high_frequency : float
             high frequency band to be passed [Hz]
-        window_function: str
+        window_function : str
             window type {'tukey', 'kaiser', 'cosine'}
         window_shape : float
             parameter for the window shape

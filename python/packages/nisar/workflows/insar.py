@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 import time
 
+import sys; sys.path.append("/scratch/colinm/code/isce3/python/packages")
+
 import journal
 from nisar.workflows import (bandpass_insar, crossmul,
-                             dense_offsets, geo2rdr,geocode_insar,
+                             dense_offsets, geo2rdr, geocode_insar,
                              h5_prep, filter_interferogram,
                              offsets_product, prepare_insar_hdf5, rdr2geo,
                              resample_slc_v2, rubbersheet,
