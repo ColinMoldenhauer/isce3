@@ -684,8 +684,9 @@ ionosphere_phase_correction_options:
     # being 1/3 (fixed for now) of the total main range spectrum.
     # 'main_side_band' uses the additional NISAR 5 MHz side-band to estimate the
     # ionosphere phase screen. Main and side-bands are intended to be at the same polarization
-    spectral_diversity: enum('split_main_band', 'main_side_band', 'main_diff_ms_band', required=False)
+    spectral_diversity: enum('split_main_band', 'main_side_band', 'main_diff_ms_band', 'split_azimuth', required=False)
     split_range_spectrum: include('split_range_spectrum_options', required=False)
+    split_azimuth_spectrum: include('split_azimuth_spectrum_options', required=False)
     list_of_frequencies: include('ionosphere_freq_pol_options', required=False)
     dispersive_filter: include('dispersive_filter_options', required=False)
     # Number of lines per block for block processing)
@@ -728,6 +729,27 @@ split_range_spectrum_options:
     # High bandwidth. If unspecified, it is automatically set by the workflow
     high_band_bandwidth: num(min=0, required=False)
     # Type of window used to taper range spectrum
+    window_function: enum('tukey', 'cosine', 'kaiser', required=False)
+    # Shape parameter. For Kaiser, 0 <= shape < Inf.
+    # For Cosine and Tukey, 0 <= shape <= 1
+    window_shape: num(min=0, required=False)
+
+split_azimuth_spectrum_options:
+    # shift azimuth spectrum to be centered around 0
+    compensate_doppler_centroid: bool(required=False)
+    # whether to correct the azimuth spectrum asymmetry ahead of splitting
+    compensate_antenna_pattern: bool(required=False)
+    # Number of lines per block for block processing)
+    lines_per_block: int(min=1, required=False)
+    # Azimuth subband center frequencies
+    band_center_frequencies: list(num, min=2)
+    # Interprete the center frequencies as fractions of the azimuth bandwidth, default True
+    band_center_frequencies_relative: bool(required=False)
+    # Azimuth subband bandwidths
+    band_bandwidths: list(num, min=2)
+    # Interprete the bandwidths as fractions of the azimuth bandwidth, default True
+    band_bandwidths_relative: bool(required=False)
+    # Type of window used to taper azimuth spectrum
     window_function: enum('tukey', 'cosine', 'kaiser', required=False)
     # Shape parameter. For Kaiser, 0 <= shape < Inf.
     # For Cosine and Tukey, 0 <= shape <= 1
