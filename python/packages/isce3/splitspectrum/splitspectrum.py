@@ -187,7 +187,8 @@ class SplitSpectrum:
                                 window_function,
                                 window_shape=0.25,
                                 fft_size=None,
-                                resampling=True
+                                resampling=True,
+                                doppler_centroid=None,
                                 ):
 
         """Bandpass SLC for a given bandwidth and shift the bandpassed
@@ -238,6 +239,7 @@ class SplitSpectrum:
                           window_function=window_function,
                           window_shape=window_shape,
                           fft_size=fft_size,
+                          doppler_centroid=doppler_centroid,
                           )
 
         # demodulate the SLC to be baseband to new center frequency
@@ -329,6 +331,7 @@ class SplitSpectrum:
                           window_function,
                           window_shape=0.25,
                           fft_size=None,
+                          doppler_centroid=None,
                           ):
         """Bandpass SLC for given center frequency and bandwidth
 
@@ -348,6 +351,9 @@ class SplitSpectrum:
             tukey and cosine 0 <= window_shape <= 1
         fft_size : int
             fft size.
+        doppler_centroid : None | numpy.ndarray
+            optional array of doppler centroid values per range bin. If None, the spectrum is used as is, else
+             will be used to center the respective azimuth spectrum around zero doppler
 
         Returns
         -------
@@ -400,6 +406,14 @@ class SplitSpectrum:
             fft_size=fft_size,
             window_function=window_function,
             window_shape=window_shape
+            )
+
+        # optionally shift azimuth spectrum to zero doppler
+        if self.axis == "az" and doppler_centroid is not None:
+            slc_raster = self.shift_doppler_centroid(
+                slc_raster,
+                doppler_centroid,
+                sample_freq
             )
 
         # get spectrum
@@ -747,3 +761,21 @@ class SplitSpectrum:
                     1.0 + np.cos(np.pi / (subbandwidth * window_shape)
                     * (freqabs - 0.5 * (1.0 - window_shape) * subbandwidth)))
         return filter_1d
+
+
+    def shift_doppler_centroid(self, slc_raster, doppler_centroid, sampling_frequency):
+        n_az, n_rg = slc_raster.shape
+
+        f = np.arange(0, n_az) / sampling_frequency
+        for col_idx_ in range(n_rg):
+            slc_col = slc_raster[:, col_idx_]
+            dc = doppler_centroid[col_idx_]
+
+            # shift spectrum to zero doppler
+            slc_col_shifted = slc_col * np.exp(-1j * 2 * np.pi * dc * f)
+
+            slc_raster[:, col_idx_] = slc_col_shifted
+
+        return slc_raster
+
+
