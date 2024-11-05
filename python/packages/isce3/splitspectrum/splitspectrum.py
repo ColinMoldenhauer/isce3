@@ -189,6 +189,7 @@ class SplitSpectrum:
                                 fft_size=None,
                                 resampling=True,
                                 doppler_centroid=None,
+                                compensate_az_antenna_pattern=True,
                                 ):
 
         """Bandpass SLC for a given bandwidth and shift the bandpassed
@@ -240,6 +241,7 @@ class SplitSpectrum:
                           window_shape=window_shape,
                           fft_size=fft_size,
                           doppler_centroid=doppler_centroid,
+                          compensate_az_antenna_pattern=compensate_az_antenna_pattern
                           )
 
         # demodulate the SLC to be baseband to new center frequency
@@ -332,6 +334,7 @@ class SplitSpectrum:
                           window_shape=0.25,
                           fft_size=None,
                           doppler_centroid=None,
+                          compensate_az_antenna_pattern=True
                           ):
         """Bandpass SLC for given center frequency and bandwidth
 
@@ -354,6 +357,8 @@ class SplitSpectrum:
         doppler_centroid : None | numpy.ndarray
             optional array of doppler centroid values per range bin. If None, the spectrum is used as is, else
              will be used to center the respective azimuth spectrum around zero doppler
+        compensate_az_antenna_pattern : bool
+            whether to account for the azimuth spectrum asymmetry caused by the antenna pattern.
 
         Returns
         -------
@@ -418,6 +423,14 @@ class SplitSpectrum:
 
         # get spectrum
         spectrum_target = fft(slc_raster, n=fft_size, workers=-1, axis=self._fft_axis)
+
+        # optionally correct for azimuth antenna pattern
+        if self.axis == "az" and compensate_az_antenna_pattern:
+            spectrum_target = self.compensate_azimuth_antenna_pattern(
+                spectrum_target,
+                center_frequency,
+                sample_freq,
+                fft_size)  # TODO: implement
 
         # remove the windowing effect from the spectrum
         spectrum_target = np.divide(spectrum_target,
@@ -779,3 +792,56 @@ class SplitSpectrum:
         return slc_raster
 
 
+    def compensate_azimuth_antenna_pattern(self,
+                                           spectrum,
+                                           center_frequency,
+                                           sampling_frequency,
+                                           fft_size):
+
+	 # TODO: use proper compensation algorithm using antenna pattern metadata
+        from scipy.signal import convolve
+        from scipy.fft import fftshift, ifftshift
+
+        def fit_antenna_pattern(f, X, thresh=None, return_coeff=False):
+            X_abs = np.abs(X)
+
+            if thresh is None:
+                thresh = np.quantile(X_abs, .3)
+
+            coeff = np.polyfit(f[X_abs > thresh], X_abs[X_abs > thresh], 2)
+
+            if return_coeff:
+                return coeff
+            else:
+                fit = np.polyval(coeff, f)
+                return fit
+
+        def correct_az_spectrum(f, X, coeff_fit):
+            coeff_corr = np.array([*-coeff_fit[:2], coeff_fit[-1]]) / coeff_fit[-1]
+            poly_corr = np.polyval(coeff_corr, f)
+
+            X_corr = X * poly_corr
+            return X_corr
+
+
+        frequency = self.freq_spectrum(
+                    cfrequency=center_frequency,
+                    dt=1.0/sampling_frequency,
+                    fft_size=fft_size
+                    )
+
+        filter_size = 10
+        for col_idx_ in range(spectrum.shape[1]):
+            spectrum_col = spectrum[:, col_idx_]
+
+            # filter spectrum for crude antenna pattern estimation
+            spectrum_abs_col_filtered = convolve(fftshift(np.abs(spectrum_col)), np.full(filter_size, 1/filter_size), mode="same")
+
+            # fit to filtered spectrum and correct
+            spectrum_abs_col_fit_coeff = fit_antenna_pattern(frequency, spectrum_abs_col_filtered, thresh=None, return_coeff=True)
+            spectrum_col_corr = ifftshift(correct_az_spectrum(frequency, fftshift(spectrum_col), spectrum_abs_col_fit_coeff))
+
+            # assign corrected spectrum
+            spectrum[:, col_idx_] = spectrum_col_corr
+
+        return spectrum
