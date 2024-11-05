@@ -239,6 +239,7 @@ class SplitSpectrum:
                           high_frequency=high_frequency,
                           window_function=window_function,
                           window_shape=window_shape,
+                          remove_window=self.axis == "rg",
                           fft_size=fft_size,
                           doppler_centroid=doppler_centroid,
                           compensate_az_antenna_pattern=compensate_az_antenna_pattern
@@ -332,6 +333,7 @@ class SplitSpectrum:
                           high_frequency,
                           window_function,
                           window_shape=0.25,
+                          remove_window=True,
                           fft_size=None,
                           doppler_centroid=None,
                           compensate_az_antenna_pattern=True
@@ -352,6 +354,8 @@ class SplitSpectrum:
             parameter for the window shape
             kaiser 0<= window_shape < inf
             tukey and cosine 0 <= window_shape <= 1
+        remove_window : bool
+            whether to remove a windowing effect in the input spectrum
         fft_size : int
             fft size.
         doppler_centroid : None | numpy.ndarray
@@ -433,10 +437,12 @@ class SplitSpectrum:
                 fft_size)  # TODO: implement
 
         # remove the windowing effect from the spectrum
-        spectrum_target = np.divide(spectrum_target,
-                                    window_target,
-                                    out=np.zeros_like(spectrum_target),
-                                    where=window_target != 0)
+        if remove_window:
+            window_target_bc = self._broadcast(window_target)
+            spectrum_target = np.divide(spectrum_target,
+                                        window_target_bc,
+                                        out=np.zeros_like(spectrum_target),
+                                        where=window_target_bc != 0)
 
         # apply new bandpass window to spectrum
         slc_bandpassed = ifft(spectrum_target
