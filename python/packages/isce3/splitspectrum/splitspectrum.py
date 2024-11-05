@@ -24,6 +24,10 @@ class bandpass_meta_data:
     center_freq: float
     # slant range
     slant_range: 'method'
+    # az sampling frequency/pulse repetition frequency
+    prf: float
+    # azimuth bandwidth
+    az_bandwidth: float
 
     @classmethod
     def load_from_slc(cls, slc_product, freq):
@@ -53,9 +57,13 @@ class bandpass_meta_data:
             slc_product.getSwathMetadata(freq).processed_range_bandwidth
         center_frequency = \
             isce3.core.speed_of_light / rdr_grid.wavelength
+
+        az_bandwidth = \
+            slc_product.getSwathMetadata(freq).processed_azimuth_bandwidth
+
         return cls(rdr_grid.range_pixel_spacing, rdr_grid.wavelength,
                    rg_sample_freq, rg_bandwidth, center_frequency,
-                   rdr_grid.slant_range)
+                   rdr_grid.slant_range, rdr_grid.prf, az_bandwidth)
 
 
 def check_range_bandwidth_overlap(ref_slc, sec_slc, pols):
