@@ -804,30 +804,51 @@ class SplitSpectrum:
                                            sampling_frequency,
                                            fft_size):
 
-	 # TODO: use proper compensation algorithm using antenna pattern metadata
-        from scipy.signal import convolve
-        from scipy.fft import fftshift, ifftshift
+    	 # TODO: use proper compensation algorithm using antenna pattern metadata
+        from scipy.ndimage import maximum_filter1d
 
-        def fit_antenna_pattern(f, X, thresh=None, return_coeff=False):
+
+        def fit_antenna_pattern(f, X, thresh=None, quantile=None):
+            """
+            Fit a polynomial (degree 2) to the amplitude of the spectrum `X`, considering only values larger than `thresh`.
+            If `quantile` is provided, it's used to compute the threshold from the amplitude data.
+            """
             X_abs = np.abs(X)
 
-            if thresh is None:
+            # optionally determine threshods
+            if quantile is not None:
                 thresh = np.quantile(X_abs, .3)
+            elif thresh is None:
+                thresh = X_abs.min()
 
+            # fit polynomial to thresholded amplitude
             coeff = np.polyfit(f[X_abs > thresh], X_abs[X_abs > thresh], 2)
 
-            if return_coeff:
-                return coeff
-            else:
-                fit = np.polyval(coeff, f)
-                return fit
+            # evaluate polynomial on frequency axis and return
+            fit = np.polyval(coeff, f)
+            return fit
 
-        def correct_az_spectrum(f, X, coeff_fit):
-            coeff_corr = np.array([*-coeff_fit[:2], coeff_fit[-1]]) / coeff_fit[-1]
-            poly_corr = np.polyval(coeff_corr, f)
+        def compensate_az_spectrum(f, X, window_size=None):
+            """
+            Compensate the azimuth antenna pattern. The amplitude decay from low to high frequencies is determined and corrected.
+            The amplitude data is first filtered by taking the max in a moving window in order to filter out low amplitude bins, while preserving the overall decaying shape.
+            Then, a polynomial (degree 2) is fit to the filtered amplitude data and its decay (aka `d = max/min`) determined. The polynomial is then transformed to have a min of 1 in the low frequencies
+            and a max of `d` towards the high frequencies. The transformed polynomial is multiplied with the raw data and returned as the compensated data.
+            """
+            X_abs = np.abs(X)
+            window_size = window_size or len(X)//10
 
-            X_corr = X * poly_corr
-            return X_corr
+            # compute max in moving window
+            X_max = maximum_filter1d(X_abs, size=window_size)
+
+            # fit 2nd degree polyonomial to filtered spectrum, using only values of the top 70% quantile to avoid zero-amplitude bins outside of bandwidth
+            poly_fit_max = fit_antenna_pattern(f, X_max, quantile=.3)
+
+            # compute compensation polynomial
+            min = poly_fit_max.min(); max = poly_fit_max.max()
+            poly_compensate = -(poly_fit_max-max)/(max-min) * (max/min-1) + 1           # move to origin, flip, rescale to max/min for multiplication and finally add 1
+
+            return X * poly_compensate
 
 
         frequency = self.freq_spectrum(
@@ -836,18 +857,11 @@ class SplitSpectrum:
                     fft_size=fft_size
                     )
 
-        filter_size = 10
         for col_idx_ in range(spectrum.shape[1]):
             spectrum_col = spectrum[:, col_idx_]
-
-            # filter spectrum for crude antenna pattern estimation
-            spectrum_abs_col_filtered = convolve(fftshift(np.abs(spectrum_col)), np.full(filter_size, 1/filter_size), mode="same")
-
-            # fit to filtered spectrum and correct
-            spectrum_abs_col_fit_coeff = fit_antenna_pattern(frequency, spectrum_abs_col_filtered, thresh=None, return_coeff=True)
-            spectrum_col_corr = ifftshift(correct_az_spectrum(frequency, fftshift(spectrum_col), spectrum_abs_col_fit_coeff))
+            spectrum_col_corrected = compensate_az_spectrum(frequency, spectrum_col)
 
             # assign corrected spectrum
-            spectrum[:, col_idx_] = spectrum_col_corr
+            spectrum[:, col_idx_] = spectrum_col_corrected
 
         return spectrum
