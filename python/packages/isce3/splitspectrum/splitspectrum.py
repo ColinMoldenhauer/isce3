@@ -790,10 +790,10 @@ class SplitSpectrum:
         f = np.arange(0, n_az) / sampling_frequency
         for col_idx_ in range(n_rg):
             slc_col = slc_raster[:, col_idx_]
-            dc = doppler_centroid[col_idx_]
+            dc_shift = -doppler_centroid[col_idx_]
 
             # shift spectrum to zero doppler
-            slc_col_shifted = slc_col * np.exp(-1j * 2 * np.pi * dc * f)
+            slc_col_shifted = slc_col * np.exp(-1j * 2 * np.pi * dc_shift * f)
 
             slc_raster[:, col_idx_] = slc_col_shifted
 
