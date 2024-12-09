@@ -131,7 +131,7 @@ class SplitSpectrum:
             range bandwidth [Hz]
         center_frequency : float
             center frequency of SLC [Hz]
-        slant_range : new center frequency for bandpass [Hz]
+        slant_range : new center frequency for bandpass [Hz]    # TODO: is this docstring correct?
         freq : {'A', 'B'}
             frequency band
         axis : {'rg', 'az'}
@@ -239,7 +239,7 @@ class SplitSpectrum:
                           high_frequency=high_frequency,
                           window_function=window_function,
                           window_shape=window_shape,
-                          remove_window=self.axis == "rg",
+                          remove_window=self.axis == "rg",      # TODO: make parameter for bandpass_shift_spectrum/SplitSpectrum or leave hardcoded?
                           fft_size=fft_size,
                           doppler_centroid=doppler_centroid,
                           compensate_az_antenna_pattern=compensate_az_antenna_pattern
@@ -307,6 +307,7 @@ class SplitSpectrum:
             meta[spacing_key] = \
                 self.pxl_spacing * resampling_scale_factor
 
+            # TODO: whats the function of the slant_range method? is there an azimuth equivalent?
             if self.axis == "rg":
                 meta['slant_range'] = \
                     self.slant_range(0) + \
@@ -318,6 +319,7 @@ class SplitSpectrum:
 
         else:
             meta[spacing_key] = self.pxl_spacing
+            # TODO: whats the function of the slant_range method? is there an azimuth equivalent?
             if self.axis == "rg":
                 meta['slant_range'] = \
                     self.slant_range(0) + \
@@ -804,7 +806,7 @@ class SplitSpectrum:
                                            sampling_frequency,
                                            fft_size):
 
-    	 # TODO: use proper compensation algorithm using antenna pattern metadata
+	    # TODO: use proper compensation algorithm using antenna pattern metadata
         from scipy.ndimage import maximum_filter1d
 
 

@@ -284,7 +284,7 @@ def run(cfg: dict):
 
             if compensate_doppler_centroid:
                 doppler_centroid = slc_product.getDopplerCentroid().data
-                doppler_centroid = doppler_centroid[0, :]
+                doppler_centroid = doppler_centroid[0, :]       # TODO: how to handle different centroids per RSLC, resample or use column only?
             else:
                 doppler_centroid = None
 
@@ -314,8 +314,8 @@ def run(cfg: dict):
             split_spectrum_parameters = splitspectrum.SplitSpectrum(
                 sample_freq=meta_data.prf,
                 bandwidth=meta_data.az_bandwidth,
-                center_frequency=0.,
-                slant_range=None,
+                center_frequency=0,
+                slant_range=None,                                   # TODO: confirm its really not needed in az case! None appropriate as not used in az case? meta_data.slant_range <bound method PyCapsule.slant_range of <isce3.ext.isce3.product.RadarGridParameters object at 0x7f67768814b0>>
                 freq=freq,
                 axis="az")
 
