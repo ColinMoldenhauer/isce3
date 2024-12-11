@@ -463,7 +463,7 @@ def insar_ionosphere_pair(original_cfg, runw_hdf5):
             if res_pol:
                 iono_insar_cfg['processing']['input_subset'][
                     'list_of_frequencies'][freq] = res_pol
-                rerun_insar_pairs =+ 1
+                rerun_insar_pairs =+ 1          # should be += 1    or = +1
             else:
                 del iono_insar_cfg['processing']['input_subset'][
                     'list_of_frequencies'][freq]
